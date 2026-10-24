@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AppUser, Repo } from '../data/repo';
 import { friendlyError } from '../data/repo';
-import { countSpools, isoProgress, locationOptions, systemOptions, type LocationOption } from '../domain/progress';
+import { countSpools, isosInSelection, locationOptions, matchesSelection, systemOptions, type LocationOption } from '../domain/progress';
 import { STATUS_LABEL, STATUS_ORDER, type Project, type ProjectData, type Spool, type SpoolStatus } from '../domain/types';
 import { StatusBadge, StatusIcon } from './icons';
 import { useStored } from './util';
@@ -23,10 +23,11 @@ export function Production({ repo, user, project, data, notify }: Props) {
   const [search, setSearch] = useState('');
   const [overrides, setOverrides] = useState<Record<string, SpoolStatus>>({});
 
-  const locations = useMemo(() => locationOptions(data.isometrics), [data.isometrics]);
+  const located = useMemo(() => [...data.spools, ...data.isometrics], [data.spools, data.isometrics]);
+  const locations = useMemo(() => locationOptions(located), [located]);
   const locKey = (l: LocationOption) => `${l.locationType}|${l.locationName}`;
   const loc = locations.find((l) => locKey(l) === sel.loc) ?? null;
-  const systems = useMemo(() => (loc ? systemOptions(data.isometrics, loc) : []), [data.isometrics, loc]);
+  const systems = useMemo(() => (loc ? systemOptions(located, loc) : []), [located, loc]);
   const system = systems.includes(sel.system) ? sel.system : '';
 
   // Auto-pick when there is exactly one choice; otherwise the user chooses.
@@ -40,28 +41,29 @@ export function Production({ repo, user, project, data, notify }: Props) {
   // Server/DB data wins once it arrives; drop optimistic overrides.
   useEffect(() => setOverrides({}), [data.spools]);
 
-  const inScope = (x: { locationType: string; locationName: string; system: string }) =>
-    !!loc && !!system && x.locationType === loc.locationType && x.locationName === loc.locationName && x.system === system;
-
+  const selection = useMemo(
+    () => (loc && system ? { locationType: loc.locationType, locationName: loc.locationName, system } : null),
+    [loc, system],
+  );
+  const allSpools = useMemo(
+    () => data.spools.map((s) => (overrides[s.id] ? { ...s, status: overrides[s.id] } : s)),
+    [data.spools, overrides],
+  );
   const spools: Spool[] = useMemo(
     () =>
-      data.spools
-        .filter(inScope)
-        .map((s) => (overrides[s.id] ? { ...s, status: overrides[s.id] } : s))
-        .sort((a, b) => a.isoNo.localeCompare(b.isoNo, 'tr', { numeric: true }) || a.spoolNo.localeCompare(b.spoolNo, 'tr', { numeric: true })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.spools, overrides, loc, system],
+      selection
+        ? allSpools
+            .filter((s) => matchesSelection(s, selection))
+            .sort((a, b) => a.isoNo.localeCompare(b.isoNo, 'tr', { numeric: true }) || a.spoolNo.localeCompare(b.spoolNo, 'tr', { numeric: true }))
+        : [],
+    [allSpools, selection],
   );
-  const isos = useMemo(
-    () => isoProgress(data.isometrics.filter(inScope), spools),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.isometrics, spools, loc, system],
-  );
+  const isos = useMemo(() => (selection ? isosInSelection(data.isometrics, allSpools, selection) : []), [data.isometrics, allSpools, selection]);
   const counts = countSpools(spools);
 
   const q = search.trim().toLocaleUpperCase('en-US');
   const visibleSpools = spools.filter(
-    (s) => (filter === 'all' || s.status === filter) && (!q || s.spoolNo.includes(q) || s.isoNo.includes(q)),
+    (s) => (filter === 'all' || s.status === filter) && (!q || s.spoolNo.includes(q) || s.isoNo.includes(q) || `${s.isoNo} ${s.spoolNo}`.includes(q)),
   );
   const visibleIsos = isos.filter((i) => !q || i.iso.isoNo.includes(q));
 
@@ -76,7 +78,7 @@ export function Production({ repo, user, project, data, notify }: Props) {
         delete n[spool.id];
         return n;
       });
-      notify(`${spool.spoolNo} kaydedilemedi: ${friendlyError(e)}`, true);
+      notify(`${spoolTitle(spool)} kaydedilemedi: ${friendlyError(e)}`, true);
     }
   }
 
@@ -162,12 +164,17 @@ export function Production({ repo, user, project, data, notify }: Props) {
               ) : (
                 <div className="list spools" data-testid="spool-list">
                   {visibleSpools.map((s) => (
-                    <div className="item" key={s.id} data-spool={s.spoolNo}>
+                    <div className="item" key={s.id} data-spool={spoolTitle(s)}>
                       <div className="head">
-                        <div className="title">{s.spoolNo}</div>
-                        <div className="meta">İzometri {s.isoNo} · Rev {s.revision}</div>
+                        <div className="title">{spoolTitle(s)}</div>
+                        <div className="meta">
+                          İzometri {s.isoNo} · Rev {s.revision}
+                          {loc?.locationType === 'Zone' && s.block ? ` · Block ${s.block}` : ''}
+                          {loc?.locationType === 'Block' && s.zone ? ` · Zone ${s.zone}` : ''}
+                        </div>
+                        {s.note && <div className="note" role="note">⚠ {s.note}</div>}
                       </div>
-                      <div className="statusbtns" role="group" aria-label={`${s.spoolNo} durumu`}>
+                      <div className="statusbtns" role="group" aria-label={`${spoolTitle(s)} durumu`}>
                         {STATUS_ORDER.map((st) => (
                           <button key={st} className={`s-${st}`} aria-pressed={s.status === st} onClick={() => change(s, st)}>
                             <StatusIcon status={st} />
@@ -218,4 +225,9 @@ export function Production({ repo, user, project, data, notify }: Props) {
       )}
     </div>
   );
+}
+
+/** Report spool numbers are short (S01) and only unique within a pipeline; templates repeat the iso no. */
+export function spoolTitle(s: Spool): string {
+  return s.spoolNo.startsWith(s.isoNo) ? s.spoolNo : `${s.isoNo} ${s.spoolNo}`;
 }

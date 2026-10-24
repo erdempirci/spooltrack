@@ -1,4 +1,4 @@
-# SpoolTrack v0.7 — Mobil MVP
+# SpoolTrack v0.8 — Mobil MVP
 
 Tersane ve yat projelerinde izometri, spool üretimi ve malzeme takibi. React + TypeScript + Vite, PWA (telefona ana ekrandan eklenir), SheetJS ile Excel içe aktarma, Firebase Authentication + Cloud Firestore ile çok kullanıcılı kullanım.
 
@@ -49,6 +49,32 @@ Her adımda “Şablon” butonu doğru başlıklı Excel'i indirir. Dosya seçi
 
 **Raporlar** (admin): proje, Zone/Block, sistem, ISO ilerlemesi, eksik satın alma; tümü tek Excel dosyasında (biten/üretimdeki/başlamayan spool listeleri dahil).
 
+## Tersane raporu (GENERAL_REPORTS) yükleme
+
+**Veri Yükleme → 2. Tersane raporu** adımı, “Spool List” ve “Material List” sayfaları olan rapor dosyasını (ör. `NB012-ZC1-GENERAL_REPORTS.xlsx`) dönüştürmeden okur. Sayfa adları değil sütun başlıkları aranır; başlık satırı üstteki başlık bloğundan (HULL NO, DATE, REVISION NO) sonra otomatik bulunur.
+
+- **HULL NO** proje adı olarak önerilir (“NB012 projesini oluştur” butonu).
+- **Pipeline** = izometri. Revizyon spool bazındadır: her spool kendi revizyonunu taşır, izometride en yüksek revizyon gösterilir.
+- Her spool kendi **Zone** ve **Block** bilgisini taşır. Üretim ekranında Zone C1'i veya Block 107'yi seçebilirsiniz. Bir pipeline'ın spoolları farklı bloklardaysa ISO ilerlemesi pipeline'ın tüm spoollarından hesaplanır.
+- **Production Note** spool kartında uyarı olarak gösterilir (ör. “DO NOT WELD!!”).
+- “DELETE SPOOL” notlu satırlar spool olarak alınmaz; önizlemede listelenir.
+- Aynı pipeline + spool iki kez geçerse ikincisi alınmaz ve hangi bloklarda olduğu gösterilir.
+- **Yeni rapor yüklendiğinde:** yeni spoollar eklenir. Değişen revizyon, not ve konum bilgileri güncellenir. Sahadaki durum hiçbir zaman değişmez; revizyonu değişen ve üretimi başlamış spoollar önizlemede ayrıca uyarılır. Raporda artık bulunmayan spoollar silinmez, uyarı olarak listelenir.
+- **Malzeme listesi** bir özet: malzeme kodu, depo stoğu ve spool bazında dağılım içermiyor. Bu yüzden:
+  - Kod, malzemenin tanımından (açıklama, ölçü, sınıf, açı, malzeme, standart) türetilir (`M-xxxxxxxx`). Aynı satır her yüklemede aynı kodu alır.
+  - Aynı malzeme iki kez listelenmişse miktarlar toplanır.
+  - Açıklaması olmayan toplam satırları alınmaz.
+  - Birim: boru ve izolasyon **mm** kabul edilir (değerler 84808 gibi), diğerleri **adet**.
+  - Stok 0 alınır, bu yüzden eksik satın alma = kalan ihtiyaç olur.
+  - “Kullanılan” miktarlar ancak spool malzeme listesi (şablon adımı 6) yüklenirse hesaplanır.
+
+Gerçek bir rapor dosyasıyla test etmek için (dosya repoya eklenmez):
+
+```bash
+REAL_FILE=/yol/NB012-ZC1-GENERAL_REPORTS.xlsx npx vitest run src/domain/real-file.node.test.ts
+REAL_FILE=/yol/NB012-ZC1-GENERAL_REPORTS.xlsx npm run test:e2e
+```
+
 ## İş kuralları
 
 | Konu | Kural |
@@ -69,7 +95,7 @@ Her adımda “Şablon” butonu doğru başlıklı Excel'i indirir. Dosya seçi
 ## Testler
 
 ```bash
-npm test                 # 24 birim/entegrasyon testi (Vitest)
+npm test                 # 29 birim/entegrasyon testi (Vitest)
 npm run build
 npm run test:e2e         # gerçek tarayıcıda telefon ekranında uçtan uca test (Playwright)
                          # kurulu Chrome kullanmak için: CHROME_PATH=/path/to/chrome npm run test:e2e

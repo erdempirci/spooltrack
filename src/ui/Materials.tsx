@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { buildWorkbook } from '../domain/excel';
 import { computeMaterialRows, filterMaterialRows, isScoped, type MaterialRow } from '../domain/materials';
-import { locationOptions } from '../domain/progress';
+import { locationOptions, systemOptions } from '../domain/progress';
 import type { LocationType, Project, ProjectData } from '../domain/types';
 import { Icon } from './icons';
 import { fmt, saveFile, stamp, useStored } from './util';
@@ -12,6 +12,7 @@ export function materialExportRows(rows: MaterialRow[]) {
     'Açıklama': r.material.description,
     'Çap/ölçü': r.material.size,
     'Malzeme kalitesi': r.material.grade,
+    'Sınıf / standart': r.material.spec ?? '',
     'Birim': r.material.unit,
     'Toplam ihtiyaç': r.totalNeed,
     'Biten spoollarda kullanılan': r.usedDone,
@@ -25,8 +26,9 @@ export function materialExportRows(rows: MaterialRow[]) {
 
 export function Materials({ project, data }: { project: Project; data: ProjectData }) {
   const [f, setF] = useStored(`spooltrack.matfilter.${project.id}`, { system: '', loc: '', size: '', text: '' });
-  const locations = useMemo(() => locationOptions(data.isometrics), [data.isometrics]);
-  const systems = useMemo(() => [...new Set(data.isometrics.map((i) => i.system))].sort((a, b) => a.localeCompare(b, 'tr')), [data.isometrics]);
+  const located = useMemo(() => [...data.spools, ...data.isometrics], [data.spools, data.isometrics]);
+  const locations = useMemo(() => locationOptions(located), [located]);
+  const systems = useMemo(() => systemOptions(located, null), [located]);
   const sizes = useMemo(() => [...new Set(data.materials.map((m) => m.size).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr', { numeric: true })), [data.materials]);
 
   const [locType, locName] = f.loc ? (f.loc.split('|') as [LocationType, string]) : [null, null];
@@ -91,7 +93,7 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
           <table className="data responsive" data-testid="material-table">
             <thead>
               <tr>
-                <th>Kod</th><th>Açıklama</th><th>Ölçü</th><th>Kalite</th><th>Birim</th>
+                <th>Malzeme</th><th>Ölçü</th><th>Kalite</th><th>Kod</th><th>Birim</th>
                 <th className="num">Toplam ihtiyaç</th><th className="num">Bitende kullanılan</th><th className="num">Devam edene ayrılan</th>
                 <th className="num">Kalan ihtiyaç</th>{!scoped && <><th className="num">Depo stoğu</th><th className="num">Eksik satın alma</th></>}
               </tr>
@@ -99,10 +101,10 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
             <tbody>
               {rows.map((r) => (
                 <tr key={r.material.id} className={(r.shortage ?? 0) > 0 ? 'hl' : ''} data-material={r.material.code}>
-                  <td className="lead" data-label="Kod">{r.material.code}</td>
-                  <td data-label="Açıklama">{r.material.description}</td>
+                  <td className="lead wrap" data-label="Malzeme">{r.material.description}{r.material.spec && <span className="small muted spec"> {r.material.spec}</span>}</td>
                   <td data-label="Çap/ölçü">{r.material.size}</td>
                   <td data-label="Kalite">{r.material.grade}</td>
+                  <td className="small muted" data-label="Kod">{r.material.code}</td>
                   <td data-label="Birim">{r.material.unit}</td>
                   <td className="num" data-label="Toplam ihtiyaç">{fmt(r.totalNeed)}{r.bomExceedsTotal && <span title="Spool listeleri toplam ihtiyaçtan fazla"> ⚠</span>}</td>
                   <td className="num" data-label="Biten spoollarda kullanılan" data-col="used">{fmt(r.usedDone)}</td>

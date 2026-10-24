@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { buildWorkbook } from '../domain/excel';
+import { locLabel } from '../domain/importers';
 import { computeMaterialRows } from '../domain/materials';
 import { countSpools, groupProgress, isoProgress, type Counts } from '../domain/progress';
 import { STATUS_LABEL, STATUS_ORDER, type Project, type ProjectData, type Spool } from '../domain/types';
@@ -20,9 +21,10 @@ const spoolRow = (s: Spool) => ({
   'İzometri no': s.isoNo,
   'Revizyon': s.revision,
   'Sistem': s.system,
-  'Konum türü': s.locationType,
-  'Konum': s.locationName,
+  'Zone': s.zone,
+  'Block': s.block,
   'Durum': STATUS_LABEL[s.status],
+  'Üretim notu': s.note ?? '',
   'Son güncelleme': s.updatedAt,
 });
 
@@ -53,7 +55,8 @@ function ProgressTable({ title, rows }: { title: string; rows: (Counts & { label
 
 export function Reports({ project, data }: { project: Project; data: ProjectData }) {
   const total = countSpools(data.spools);
-  const byLoc = useMemo(() => groupProgress(data.spools, (s) => `${s.locationType}|${s.locationName}`, (s) => `${s.locationType} ${s.locationName}`), [data.spools]);
+  const byZone = useMemo(() => groupProgress(data.spools.filter((s) => s.zone), (s) => s.zone, (s) => `Zone ${s.zone}`), [data.spools]);
+  const byBlock = useMemo(() => groupProgress(data.spools.filter((s) => s.block), (s) => s.block, (s) => `Block ${s.block}`), [data.spools]);
   const bySys = useMemo(() => groupProgress(data.spools, (s) => s.system, (s) => s.system), [data.spools]);
   const isos = useMemo(() => isoProgress(data.isometrics, data.spools), [data.isometrics, data.spools]);
   const mats = useMemo(() => computeMaterialRows(data), [data]);
@@ -62,13 +65,13 @@ export function Reports({ project, data }: { project: Project; data: ProjectData
   function exportAll() {
     const sheets = [
       { name: 'Proje ilerlemesi', rows: [{ Proje: project.name, ...countCols(total) }] },
-      { name: 'Zone-Block ilerlemesi', rows: byLoc.map((g) => ({ 'Zone/Block': g.label, ...countCols(g) })) },
+      { name: 'Zone-Block ilerlemesi', rows: [...byZone, ...byBlock].map((g) => ({ 'Zone/Block': g.label, ...countCols(g) })) },
       { name: 'Sistem ilerlemesi', rows: bySys.map((g) => ({ Sistem: g.label, ...countCols(g) })) },
       {
         name: 'ISO ilerlemesi',
         rows: isos.map((i) => ({
           'İzometri no': i.iso.isoNo, Revizyon: i.iso.revision, Sistem: i.iso.system,
-          'Konum': `${i.iso.locationType} ${i.iso.locationName}`, ...countCols(i), 'ISO durumu': STATUS_LABEL[i.status],
+          'Konum': locLabel(i.iso), ...countCols(i), 'ISO durumu': STATUS_LABEL[i.status],
         })),
       },
       ...STATUS_ORDER.slice().reverse().map((st) => ({
@@ -96,7 +99,8 @@ export function Reports({ project, data }: { project: Project; data: ProjectData
         <div className="stat"><div className="v">{total.bitti}</div><div className="l">Bitti</div></div>
         <div className="stat wide"><div className="v">%{total.pct.toLocaleString('tr-TR')}</div><div className="progress"><span style={{ width: `${total.pct}%` }} /></div><div className="l">Proje genel ilerlemesi</div></div>
       </div>
-      <ProgressTable title="Zone / Block ilerlemesi" rows={byLoc} />
+      {byZone.length > 0 && <ProgressTable title="Zone ilerlemesi" rows={byZone} />}
+      {byBlock.length > 0 && <ProgressTable title="Block ilerlemesi" rows={byBlock} />}
       <ProgressTable title="Sistem ilerlemesi" rows={bySys} />
       <section className="stack">
         <h3>ISO ilerlemesi ({isos.length})</h3>
@@ -110,7 +114,7 @@ export function Reports({ project, data }: { project: Project; data: ProjectData
                   <td className="lead" data-label="İzometri">{i.iso.isoNo}</td>
                   <td data-label="Rev">{i.iso.revision}</td>
                   <td data-label="Sistem">{i.iso.system}</td>
-                  <td data-label="Konum">{i.iso.locationType} {i.iso.locationName}</td>
+                  <td data-label="Konum">{locLabel(i.iso)}</td>
                   <td className="num" data-label="Spool">{i.bitti}/{i.total}</td>
                   <td className="num" data-label="İlerleme">{i.total ? `%${i.pct.toLocaleString('tr-TR')}` : '—'}</td>
                   <td data-label="Durum"><StatusBadge status={i.status} /></td>

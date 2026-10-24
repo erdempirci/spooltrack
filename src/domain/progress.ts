@@ -1,4 +1,4 @@
-import type { IsoStatus, Isometric, LocationType, Spool } from './types';
+import type { IsoStatus, Isometric, Located, LocationType, Spool } from './types';
 
 export interface Counts {
   total: number;
@@ -49,9 +49,12 @@ export interface Selection {
   system?: string | null;
 }
 
-export function matchesSelection(x: { locationType: LocationType; locationName: string; system: string }, sel: Selection): boolean {
-  if (sel.locationType && x.locationType !== sel.locationType) return false;
-  if (sel.locationName && x.locationName !== sel.locationName) return false;
+export function matchesLocation(x: Located, locationType: LocationType, locationName: string): boolean {
+  return locationType === 'Zone' ? x.zone === locationName : x.block === locationName;
+}
+
+export function matchesSelection(x: Located, sel: Selection): boolean {
+  if (sel.locationType && sel.locationName && !matchesLocation(x, sel.locationType, sel.locationName)) return false;
   if (sel.system && x.system !== sel.system) return false;
   return true;
 }
@@ -61,23 +64,42 @@ export interface LocationOption {
   locationName: string;
 }
 
-/** Zone/Block options that actually have isometrics in the project. */
-export function locationOptions(isometrics: Isometric[]): LocationOption[] {
+/** Zone and Block options that actually exist in the project (from spools and isometrics). */
+export function locationOptions(items: Located[]): LocationOption[] {
   const map = new Map<string, LocationOption>();
-  for (const i of isometrics) map.set(`${i.locationType}|${i.locationName}`, { locationType: i.locationType, locationName: i.locationName });
+  for (const i of items) {
+    if (i.zone) map.set(`Zone|${i.zone}`, { locationType: 'Zone', locationName: i.zone });
+    if (i.block) map.set(`Block|${i.block}`, { locationType: 'Block', locationName: i.block });
+  }
   return [...map.values()].sort(
-    (a, b) => a.locationType.localeCompare(b.locationType) || a.locationName.localeCompare(b.locationName, 'tr', { numeric: true }),
+    (a, b) =>
+      (a.locationType === b.locationType ? 0 : a.locationType === 'Zone' ? -1 : 1) ||
+      a.locationName.localeCompare(b.locationName, 'tr', { numeric: true }),
   );
 }
 
 /** Systems that exist in the chosen Zone/Block only. */
-export function systemOptions(isometrics: Isometric[], loc: LocationOption | null): string[] {
+export function systemOptions(items: Located[], loc: LocationOption | null): string[] {
   const set = new Set<string>();
-  for (const i of isometrics) {
-    if (loc && (i.locationType !== loc.locationType || i.locationName !== loc.locationName)) continue;
-    set.add(i.system);
+  for (const i of items) {
+    if (loc && !matchesLocation(i, loc.locationType, loc.locationName)) continue;
+    if (i.system) set.add(i.system);
   }
-  return [...set].sort((a, b) => a.localeCompare(b, 'tr'));
+  return [...set].sort((a, b) => a.localeCompare(b, 'tr', { numeric: true }));
+}
+
+/**
+ * Isometrics to show for a selection: those with at least one spool in it, plus spool-less
+ * isometrics whose own location/system matches (so "Spool Tanımlanmamış" stays visible).
+ * Progress is always computed over ALL spools of the isometric — a pipeline split across
+ * blocks is only Bitti when every spool is finished.
+ */
+export function isosInSelection(isometrics: Isometric[], allSpools: Spool[], sel: Selection): IsoProgress[] {
+  const inScope = new Set(allSpools.filter((s) => matchesSelection(s, sel)).map((s) => s.isoId));
+  const hasSpools = new Set(allSpools.map((s) => s.isoId));
+  const isos = isometrics.filter((i) => inScope.has(i.id) || (!hasSpools.has(i.id) && matchesSelection(i, sel)));
+  const ids = new Set(isos.map((i) => i.id));
+  return isoProgress(isos, allSpools.filter((s) => ids.has(s.isoId)));
 }
 
 export interface GroupProgress extends Counts {

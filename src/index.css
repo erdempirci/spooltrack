@@ -195,6 +195,7 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
 .item .title { font-weight: 700; font-size: 1.02rem; word-break: break-word; }
 .item .meta { color: var(--muted); font-size: .88rem; }
 .item .head { display: flex; flex-direction: column; gap: 2px; }
+.item .note { margin-top: 4px; font-size: .84rem; font-weight: 600; color: var(--st-prog); background: var(--st-prog-bg); border-radius: 6px; padding: 4px 8px; white-space: pre-line; }
 @media (min-width: 900px) {
   .list.spools .item { grid-template-columns: minmax(220px, 1fr) minmax(360px, 440px); align-items: center; padding: 8px 12px; }
 }
@@ -202,6 +203,8 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 3px s
 table.data { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
 table.data th, table.data td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--border); font-size: .9rem; vertical-align: middle; }
 table.data td.lead { white-space: nowrap; }
+table.data td.lead.wrap { white-space: normal; min-width: 180px; }
+table.data td .spec { display: block; font-weight: 400; }
 table.data th { background: var(--surface-2); font-size: .78rem; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.data tr.hl td { background: var(--danger-bg); }
@@ -216,6 +219,7 @@ table.data tr.hl td { background: var(--danger-bg); }
   table.data.responsive td::before { content: attr(data-label); color: var(--muted); font-size: .82rem; text-align: left; flex: none; }
   table.data.responsive td.lead { font-weight: 700; font-size: 1rem; text-align: left; justify-content: flex-start; }
   table.data.responsive td.lead::before { content: none; }
+  table.data.responsive td.lead { flex-direction: column; align-items: flex-start; gap: 2px; }
 }
 .table-scroll { overflow-x: auto; }
 

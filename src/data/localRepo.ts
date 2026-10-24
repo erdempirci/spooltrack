@@ -6,7 +6,7 @@ import type { ImportKind, ImportPreview } from '../domain/importers';
 import { newProjectId } from '../domain/keys';
 import { fold } from '../domain/normalize';
 import type { Project, ProjectData, Role, SpoolStatus } from '../domain/types';
-import { COLLECTION, type AppUser, type Repo, type Unsubscribe } from './repo';
+import { COLLECTION, importUpdate, upgradeRecord, type AppUser, type Repo, type Unsubscribe } from './repo';
 
 const DB_NAME = 'spooltrack';
 const STORES = ['isometrics', 'spools', 'materials', 'spoolMaterials'] as const;
@@ -115,7 +115,7 @@ export class LocalRepo implements Repo {
       const db = await this.dbp;
       const tx = db.transaction([...STORES], 'readonly');
       const [isometrics, spools, materials, spoolMaterials] = await Promise.all(
-        STORES.map(async (s) => ((await tx.objectStore(s).index('projectId').getAll(projectId)) as Stored[]).map(strip)),
+        STORES.map(async (s) => ((await tx.objectStore(s).index('projectId').getAll(projectId)) as Stored[]).map((r) => upgradeRecord(strip(r)))),
       );
       await tx.done;
       cb({ isometrics, spools, materials, spoolMaterials });
@@ -150,8 +150,9 @@ export class LocalRepo implements Repo {
     }
     for (const item of preview.update) {
       const key = `${projectId}/${item.id}`;
-      const old = ((await tx.store.get(key)) as Stored | undefined) ?? {};
-      await tx.store.put({ ...old, ...item, key, projectId });
+      const old = (await tx.store.get(key)) as Stored | undefined;
+      if (!old) continue;
+      await tx.store.put({ ...old, ...importUpdate(kind, item), key, projectId });
       n++;
     }
     await tx.done; // all-or-nothing: IndexedDB rolls back the whole import on failure

@@ -111,7 +111,7 @@ describe('Excel 1 — izometri import', () => {
     const p = previewIsometrics(xlsx(ISO_ROWS), EMPTY_PROJECT_DATA, NOW);
     expect(p.missingColumns).toEqual([]);
     expect(p.create).toHaveLength(3);
-    expect(p.create[2]).toMatchObject({ isoNo: 'CHW-340-021', revision: '0', system: 'Chilled Water', locationType: 'Zone', locationName: 'Z03' });
+    expect(p.create[2]).toMatchObject({ isoNo: 'CHW-340-021', revision: '0', system: 'Chilled Water', zone: 'Z03', block: '' });
   });
   it('reports missing columns and blocks commit', () => {
     const p = previewIsometrics(xlsx([['izometri_no', 'sistem'], ['A', 'FO']]), EMPTY_PROJECT_DATA, NOW);
@@ -158,7 +158,7 @@ describe('Excel 2 — spool import', () => {
   it('links spools to iso by project + iso no + revision', () => {
     const p = previewSpools(xlsx(SPOOL_ROWS), isoData(), NOW);
     expect(p.create).toHaveLength(3);
-    expect(p.create[2]).toMatchObject({ system: 'Fuel Oil', locationType: 'Block', locationName: 'B12', status: 'devam' });
+    expect(p.create[2]).toMatchObject({ system: 'Fuel Oil', zone: '', block: 'B12', status: 'devam' });
   });
   it('does NOT attach a spool to another revision', () => {
     const p = previewSpools(xlsx([SPOOL_ROWS[0], ['FO-120-001-SP09', 'FO-120-001', 'C', 'Başlamadı']]), isoData(), NOW);
@@ -235,7 +235,7 @@ describe('progress (spec §3)', () => {
   it('Zone → systems → spools cascade only shows related items', () => {
     const d = fullProject();
     const locs = locationOptions(d.isometrics);
-    expect(locs.map((l) => `${l.locationType} ${l.locationName}`)).toEqual(['Block B12', 'Zone Z01', 'Zone Z03']);
+    expect(locs.map((l) => `${l.locationType} ${l.locationName}`)).toEqual(['Zone Z01', 'Zone Z03', 'Block B12']);
     expect(systemOptions(d.isometrics, { locationType: 'Zone', locationName: 'Z03' })).toEqual(['Chilled Water']);
     expect(countSpools(d.spools)).toMatchObject({ total: 3, baslamadi: 2, devam: 1, bitti: 0 });
   });

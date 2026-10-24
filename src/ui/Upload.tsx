@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Repo } from '../data/repo';
 import { friendlyError } from '../data/repo';
-import { readSheet } from '../domain/excel';
+import { readSheet, readWorkbook, type ParsedSheet } from '../domain/excel';
+import { blockingCount, previewReport, reportCanCommit, type ReportPreview } from '../domain/report';
 import {
   BLOCKING_ISSUES,
   canCommit,
@@ -10,6 +11,7 @@ import {
   previewMaterials,
   previewSpoolMaterials,
   previewSpools,
+  locLabel,
   REQUIRED_COLUMNS,
   type ImportKind,
   type ImportPreview,
@@ -38,10 +40,10 @@ interface StepDef {
 }
 
 const STEPS: StepDef[] = [
-  { kind: 'isometric', no: 2, title: 'İzometri listesi', help: 'Her satır bir izometri + revizyon. Aynı izometri ve revizyon tekrar yüklenirse ikinci kayıt oluşmaz.', template: 'IZOMETRI_SABLONU.xlsx' },
-  { kind: 'spool', no: 3, title: 'Spool listesi', help: 'Spoollar izometri numarası + revizyon ile eşleştirilir. Kayıtlı spoolların üretim durumu yeniden yüklemede değişmez.', template: 'SPOOL_SABLONU.xlsx', needs: (d) => (d.isometrics.length ? null : 'Önce izometri listesini yükleyin.') },
-  { kind: 'material', no: 4, title: 'Toplam malzeme listesi', help: 'Projenin toplam malzeme ihtiyacı ve depo stoğu. Yeniden yüklemede miktar ve stok güncellenir.', template: 'TOPLAM_MALZEME_SABLONU.xlsx' },
-  { kind: 'spoolMaterial', no: 5, title: 'Spool malzeme listesi', help: 'Her spoolun malzeme miktarları. Spool, izometri, revizyon ve malzeme kodu doğrulanır.', template: 'SPOOL_MALZEME_SABLONU.xlsx', needs: (d) => (!d.spools.length ? 'Önce spool listesini yükleyin.' : !d.materials.length ? 'Önce toplam malzeme listesini yükleyin.' : null) },
+  { kind: 'isometric', no: 3, title: 'İzometri listesi', help: 'Her satır bir izometri + revizyon. Aynı izometri ve revizyon tekrar yüklenirse ikinci kayıt oluşmaz.', template: 'IZOMETRI_SABLONU.xlsx' },
+  { kind: 'spool', no: 4, title: 'Spool listesi', help: 'Spoollar izometri numarası + revizyon ile eşleştirilir. Kayıtlı spoolların üretim durumu yeniden yüklemede değişmez.', template: 'SPOOL_SABLONU.xlsx', needs: (d) => (d.isometrics.length ? null : 'Önce izometri listesini yükleyin.') },
+  { kind: 'material', no: 5, title: 'Toplam malzeme listesi', help: 'Projenin toplam malzeme ihtiyacı ve depo stoğu. Yeniden yüklemede miktar ve stok güncellenir.', template: 'TOPLAM_MALZEME_SABLONU.xlsx' },
+  { kind: 'spoolMaterial', no: 6, title: 'Spool malzeme listesi', help: 'Her spoolun malzeme miktarları. Spool, izometri, revizyon ve malzeme kodu doğrulanır.', template: 'SPOOL_MALZEME_SABLONU.xlsx', needs: (d) => (!d.spools.length ? 'Önce spool listesini yükleyin.' : !d.materials.length ? 'Önce toplam malzeme listesini yükleyin.' : null) },
 ];
 
 type AnyPreview = ImportPreview<Isometric> | ImportPreview<Spool> | ImportPreview<Material> | ImportPreview<SpoolMaterial>;
@@ -92,6 +94,10 @@ export function Upload({ repo, projects, project, data, onSelectProject, notify 
         )}
       </section>
 
+      <ReportStep repo={repo} projects={projects} project={project} data={data} onSelectProject={onSelectProject} notify={notify} />
+
+      <h3 style={{ marginTop: 8 }}>Ayrı şablonlarla yükleme</h3>
+      <p className="small muted" style={{ marginTop: -6 }}>Tersane raporu yerine SpoolTrack şablonlarını kullanıyorsanız. Spool bazında malzeme listesi (adım 6) yalnızca bu yolla yüklenir.</p>
       {STEPS.map((s) => (
         <ImportStep key={s.kind} step={s} repo={repo} project={project} data={data} notify={notify} />
       ))}
@@ -175,15 +181,29 @@ function ImportStep({ step, repo, project, data, notify }: { step: StepDef; repo
 }
 
 function PreviewView({ preview, busy, onCommit, onCancel }: { preview: AnyPreview; busy: boolean; onCommit: () => void; onCancel: () => void }) {
+  const ok = canCommit(preview);
+  return (
+    <div className="stack" data-testid={`preview-${preview.kind}`}>
+      <PreviewBody preview={preview} />
+      <div className="row">
+        <button className="btn primary grow" disabled={!ok || busy} onClick={onCommit} data-testid="commit">
+          {busy ? 'Kaydediliyor…' : ok ? `${preview.create.length + preview.update.length} kaydı aktar` : 'Aktarılacak kayıt yok'}
+        </button>
+        <button className="btn" onClick={onCancel} disabled={busy}>Vazgeç</button>
+      </div>
+    </div>
+  );
+}
+
+function PreviewBody({ preview, title }: { preview: AnyPreview; title?: string }) {
   const blocking = preview.issues.filter((i) => BLOCKING_ISSUES.includes(i.kind));
   const errors = blocking.filter((i) => i.kind !== 'exists');
   const byKind = (k: IssueKind) => preview.issues.filter((i) => i.kind === k).length;
-  const order: IssueKind[] = ['invalid', 'unmatched', 'conflict', 'duplicate', 'warning', 'exists'];
+  const order: IssueKind[] = ['invalid', 'unmatched', 'conflict', 'duplicate', 'skipped', 'warning', 'exists'];
   const issues = [...preview.issues].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.rowNum - b.rowNum);
-  const ok = canCommit(preview);
-
   return (
-    <div className="stack" data-testid={`preview-${preview.kind}`}>
+    <div className="stack" data-testid={`body-${preview.kind}`}>
+      {title ? <h4 style={{ margin: 0 }}>{title}</h4> : null}
       <p className="small"><b>{preview.fileName}</b> · sayfa “{preview.sheetName}” · {preview.totalRows} veri satırı</p>
       {preview.missingColumns.length > 0 && (
         <div className="alert error" data-testid="missing-columns">
@@ -229,12 +249,6 @@ function PreviewView({ preview, busy, onCommit, onCancel }: { preview: AnyPrevie
           <ItemsTable preview={preview} />
         </details>
       )}
-      <div className="row">
-        <button className="btn primary grow" disabled={!ok || busy} onClick={onCommit} data-testid="commit">
-          {busy ? 'Kaydediliyor…' : ok ? `${preview.create.length + preview.update.length} kaydı aktar` : 'Aktarılacak kayıt yok'}
-        </button>
-        <button className="btn" onClick={onCancel} disabled={busy}>Vazgeç</button>
-      </div>
     </div>
   );
 }
@@ -245,13 +259,13 @@ function ItemsTable({ preview }: { preview: AnyPreview }) {
   let cells: (x: any) => (string | number)[] = () => [];
   if (preview.kind === 'isometric') {
     head = ['İzometri', 'Rev', 'Sistem', 'Konum'];
-    cells = (x: Isometric) => [x.isoNo, x.revision, x.system, `${x.locationType} ${x.locationName}`];
+    cells = (x: Isometric) => [x.isoNo, x.revision, x.system, locLabel(x)];
   } else if (preview.kind === 'spool') {
-    head = ['Spool', 'İzometri', 'Rev', 'Durum'];
-    cells = (x: Spool) => [x.spoolNo, x.isoNo, x.revision, STATUS_LABEL[x.status]];
+    head = ['Spool', 'İzometri', 'Rev', 'Konum', 'Sistem', 'Durum'];
+    cells = (x: Spool) => [x.spoolNo, x.isoNo, x.revision, locLabel(x), x.system, STATUS_LABEL[x.status]];
   } else if (preview.kind === 'material') {
-    head = ['Kod', 'Açıklama', 'Ölçü', 'Birim', 'Toplam', 'Stok'];
-    cells = (x: Material) => [x.code, x.description, x.size, x.unit, fmt(x.totalQty), fmt(x.stockQty)];
+    head = ['Kod', 'Açıklama', 'Ölçü', 'Malzeme', 'Birim', 'Toplam', 'Stok'];
+    cells = (x: Material) => [x.code, x.description, x.size, x.grade, x.unit, fmt(x.totalQty), fmt(x.stockQty)];
   } else {
     head = ['Spool', 'Malzeme', 'Miktar'];
     cells = (x: SpoolMaterial) => [x.spoolId.split('~S~')[1] ? decodeURIComponent(x.spoolId.split('~S~')[1]) : x.spoolId, x.materialCode, fmt(x.qty)];
@@ -268,5 +282,148 @@ function ItemsTable({ preview }: { preview: AnyPreview }) {
       </table>
       {preview.create.length + preview.update.length > 100 && <p className="small muted">İlk 100 kayıt gösteriliyor.</p>}
     </div>
+  );
+}
+
+// ───────────── Shipyard report (GENERAL_REPORTS: Spool List + Material List) ─────────────
+
+function ReportStep({ repo, projects, project, data, onSelectProject, notify }: Props) {
+  const [sheets, setSheets] = useState<ParsedSheet[] | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState('');
+  const [now] = useState(() => new Date().toISOString());
+
+  const preview: ReportPreview | null = useMemo(
+    () => (sheets && data ? previewReport(sheets, data, now) : null),
+    [sheets, data, now],
+  );
+  const hull = (sheets && (sheets.find((x) => x.meta.hullNo)?.meta.hullNo ?? '')) || '';
+  const hullProject = hull ? projects.find((p) => p.name.toLocaleUpperCase('tr') === hull.toLocaleUpperCase('tr')) : undefined;
+
+  async function onFile(file: File | undefined) {
+    setSheets(null);
+    setError('');
+    setResult('');
+    if (!file) return;
+    try {
+      const all = readWorkbook(await file.arrayBuffer(), file.name);
+      const found = previewReport(all, { isometrics: [], spools: [], materials: [], spoolMaterials: [] }, now);
+      if (!found.spoolSheet && !found.materialSheet) {
+        setError(
+          `"${file.name}" içinde spool listesi (Pipeline, Spool No, Zone/Block…) veya malzeme özeti (Description, Size, Quantity…) tablosu bulunamadı. ` +
+            `Sayfalar: ${all.map((x) => `${x.sheetName} [${x.columns.join(', ') || 'tanınan sütun yok'}]`).join('; ')}. ` +
+            'Tek tablo içeren dosyalar için aşağıdaki şablon adımlarını kullanın.',
+        );
+        return;
+      }
+      setSheets(all);
+    } catch (e) {
+      setError(friendlyError(e));
+    }
+  }
+
+  async function createHullProject() {
+    setBusy(true);
+    try {
+      const p = await repo.createProject(hull);
+      onSelectProject(p.id);
+      notify(`"${p.name}" projesi oluşturuldu.`);
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commit() {
+    if (!preview || !project) return;
+    setBusy(true);
+    setError('');
+    const parts: string[] = [];
+    try {
+      for (const [kind, p, label] of [
+        ['isometric', preview.isometrics, 'izometri'],
+        ['spool', preview.spools, 'spool'],
+        ['material', preview.materials, 'malzeme'],
+      ] as const) {
+        if (!p || p.missingColumns.length || p.create.length + p.update.length === 0) continue;
+        await repo.commitImport(project.id, kind, p as ImportPreview<{ id: string }>);
+        parts.push(`${p.create.length} yeni / ${p.update.length} güncellenen ${label}`);
+      }
+      const msg = `${preview.fileName}: ${parts.join(', ')} kaydedildi.`;
+      setResult(msg);
+      notify(msg);
+      setSheets(null);
+    } catch (e) {
+      setError(`Kaydedilemedi${parts.length ? ` (${parts.join(', ')} yazılmıştı)` : ''}: ${friendlyError(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const sections: [string, AnyPreview | null][] = preview
+    ? [
+        [`İzometriler (pipeline) — ${preview.spoolSheet ?? ''}`, preview.isometrics],
+        [`Spoollar — ${preview.spoolSheet ?? ''}`, preview.spools],
+        [`Malzemeler — ${preview.materialSheet ?? ''}`, preview.materials],
+      ]
+    : [];
+  const ok = !!preview && reportCanCommit(preview);
+  const total = preview ? [preview.isometrics, preview.spools, preview.materials].reduce((n, p) => n + (p ? p.create.length + p.update.length : 0), 0) : 0;
+
+  return (
+    <section className="card stack" data-step="report">
+      <div className="step-head">
+        <span className="step-no">2</span>
+        <div className="grow">
+          <h3>Tersane raporu (GENERAL_REPORTS)</h3>
+          <p className="small muted">
+            “Spool List” ve “Material List” sayfaları olan rapor dosyasını olduğu gibi yükleyin. Pipeline izometri olarak alınır;
+            her spool kendi Zone, Block, revizyon ve üretim notunu taşır. Yeniden yüklemede sahadaki durumlar korunur.
+          </p>
+        </div>
+      </div>
+      <label className="btn primary filebtn">
+        <Icon.file /> Rapor Excel'ini seç ve önizle
+        <input type="file" accept=".xlsx,.xls" data-testid="file-report" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
+      {error && <div className="alert error" data-testid="report-error">{error}</div>}
+      {result && <div className="alert ok" data-testid="result-report">{result}</div>}
+      {sheets && (
+        <div className="stack" data-testid="preview-report">
+          <p className="small">
+            {hull && <>HULL NO <b data-testid="report-hull">{hull}</b> · </>}
+            {sheets[0]?.meta.revisionNo && <>Rapor revizyonu {sheets[0].meta.revisionNo} · </>}
+            {sheets[0]?.meta.date && <>Tarih {sheets[0].meta.date} · </>}
+            Sayfalar: {preview?.spoolSheet ?? '—'} (spool), {preview?.materialSheet ?? '—'} (malzeme)
+            {preview && preview.ignoredSheets.length > 0 && <> · yok sayılan: {preview.ignoredSheets.join(', ')}</>}
+          </p>
+          {hull && !hullProject && (
+            <div className="alert warn row">
+              <span className="grow">Bu rapor <b>{hull}</b> teknesine ait ve bu adda proje yok.</span>
+              <button className="btn primary" onClick={createHullProject} disabled={busy} data-testid="create-hull-project">“{hull}” projesini oluştur</button>
+            </div>
+          )}
+          {hull && hullProject && project && hullProject.id !== project.id && (
+            <div className="alert warn row">
+              <span className="grow">Seçili proje <b>{project.name}</b>, rapor ise <b>{hull}</b> teknesine ait.</span>
+              <button className="btn" onClick={() => onSelectProject(hullProject.id)}>{hull} projesine geç</button>
+            </div>
+          )}
+          {!project && !hull && <div className="alert warn">Önce yukarıdan proje oluşturun veya seçin.</div>}
+          {preview && sections.map(([title, p]) => p && <PreviewBody key={title} preview={p} title={title} />)}
+          {preview && (
+            <div className="row">
+              <button className="btn primary grow" disabled={!ok || busy} onClick={commit} data-testid="commit-report">
+                {busy ? 'Kaydediliyor…' : ok ? `${total} kaydı ${project?.name ?? ''} projesine aktar` : 'Aktarılacak kayıt yok'}
+              </button>
+              <button className="btn" onClick={() => setSheets(null)} disabled={busy}>Vazgeç</button>
+            </div>
+          )}
+          {preview && <p className="small muted">Alınmayacak satır: {blockingCount(preview.spools) + blockingCount(preview.materials)}</p>}
+        </div>
+      )}
+    </section>
   );
 }

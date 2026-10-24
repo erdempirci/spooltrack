@@ -18,7 +18,7 @@ import { STATUS_LABEL } from './types';
 
 export type ImportKind = 'isometric' | 'spool' | 'material' | 'spoolMaterial';
 
-export type IssueKind = 'invalid' | 'duplicate' | 'exists' | 'conflict' | 'unmatched' | 'warning';
+export type IssueKind = 'invalid' | 'duplicate' | 'exists' | 'conflict' | 'unmatched' | 'skipped' | 'warning';
 
 export const ISSUE_LABEL: Record<IssueKind, string> = {
   invalid: 'Geçersiz satır',
@@ -26,11 +26,12 @@ export const ISSUE_LABEL: Record<IssueKind, string> = {
   exists: 'Zaten kayıtlı',
   conflict: 'Kayıtlı veriyle çelişiyor',
   unmatched: 'Eşleşmedi',
+  skipped: 'Bilerek alınmadı',
   warning: 'Uyarı',
 };
 
 /** Issue kinds that mean the row is NOT imported. 'warning' rows are still imported. */
-export const BLOCKING_ISSUES: IssueKind[] = ['invalid', 'duplicate', 'exists', 'conflict', 'unmatched'];
+export const BLOCKING_ISSUES: IssueKind[] = ['invalid', 'duplicate', 'exists', 'conflict', 'unmatched', 'skipped'];
 
 export interface RowIssue {
   rowNum: number;
@@ -92,6 +93,10 @@ function missingFields(row: SheetRow, fields: string[]): string[] {
 
 const isoRef = (isoNo: string, rev: string) => `${isoNo || '?'} rev ${rev || '?'}`;
 
+export function locLabel(x: { zone: string; block: string }): string {
+  return [x.zone && `Zone ${x.zone}`, x.block && `Block ${x.block}`].filter(Boolean).join(' / ') || 'konumsuz';
+}
+
 // ───────────────────────────── Excel 1 — İzometri ─────────────────────────────
 
 export function previewIsometrics(sheet: ParsedSheet, data: ProjectData, now: string): ImportPreview<Isometric> {
@@ -133,6 +138,8 @@ export function previewIsometrics(sheet: ParsedSheet, data: ProjectData, now: st
     const system = systemSpelling.get(fold(rawSystem)) ?? rawSystem;
     systemSpelling.set(fold(rawSystem), system);
     const locationName = identifier(row.values.konum_adi);
+    const zone = locationType === 'Zone' ? locationName : '';
+    const block = locationType === 'Block' ? locationName : '';
     const id = isoKey(isoNo, revision);
 
     const firstRow = seen.get(id);
@@ -144,12 +151,12 @@ export function previewIsometrics(sheet: ParsedSheet, data: ProjectData, now: st
 
     const old = existing.get(id);
     if (old) {
-      if (fold(old.system) !== fold(system) || old.locationType !== locationType || old.locationName !== locationName) {
+      if (fold(old.system) !== fold(system) || old.zone !== zone || old.block !== block) {
         p.issues.push({
           rowNum: row.rowNum,
           kind: 'conflict',
           ref,
-          message: `Sistemde ${old.system} / ${old.locationType} ${old.locationName} olarak kayıtlı. Dosyadaki ${system} / ${locationType} ${locationName} uygulanmadı.`,
+          message: `Sistemde ${old.system} / ${locLabel(old)} olarak kayıtlı. Dosyadaki ${system} / ${locationType} ${locationName} uygulanmadı.`,
         });
       } else {
         p.unchanged++;
@@ -168,7 +175,7 @@ export function previewIsometrics(sheet: ParsedSheet, data: ProjectData, now: st
       });
     }
 
-    p.create.push({ id, isoNo, revision, system, locationType, locationName, createdAt: now });
+    p.create.push({ id, isoNo, revision, system, zone, block, createdAt: now });
   }
   return p;
 }
@@ -251,8 +258,8 @@ export function previewSpools(sheet: ParsedSheet, data: ProjectData, now: string
       isoNo: iso.isoNo,
       revision: iso.revision,
       system: iso.system,
-      locationType: iso.locationType,
-      locationName: iso.locationName,
+      zone: iso.zone,
+      block: iso.block,
       status,
       updatedAt: now,
     });

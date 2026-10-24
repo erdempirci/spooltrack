@@ -39,7 +39,7 @@ import type { ImportKind, ImportPreview } from '../domain/importers';
 import { newProjectId } from '../domain/keys';
 import { fold } from '../domain/normalize';
 import type { Project, ProjectData, SpoolStatus } from '../domain/types';
-import { COLLECTION, type AppUser, type Repo, type Unsubscribe, type UserRole } from './repo';
+import { COLLECTION, importUpdate, upgradeRecord, type AppUser, type Repo, type Unsubscribe, type UserRole } from './repo';
 
 const BATCH_LIMIT = 450; // Firestore allows 500 writes per batch
 
@@ -54,6 +54,7 @@ export class FirebaseRepo implements Repo {
     // Offline cache: status taps made without signal are queued and synced when back online.
     this.db = initializeFirestore(app, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      ignoreUndefinedProperties: true,
     });
   }
 
@@ -141,7 +142,7 @@ export class FirebaseRepo implements Repo {
       onSnapshot(
         collection(this.db, 'projects', projectId, k),
         (snap) => {
-          parts[k] = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+          parts[k] = snap.docs.map((d) => upgradeRecord({ ...d.data(), id: d.id }));
           if (keys.every((x) => parts[x])) cb(parts as unknown as ProjectData);
         },
         onError,
@@ -163,7 +164,7 @@ export class FirebaseRepo implements Repo {
     const col = COLLECTION[kind];
     const writes: { id: string; data: Record<string, unknown>; merge: boolean }[] = [
       ...preview.create.map((x) => ({ id: x.id, data: { ...x }, merge: false })),
-      ...preview.update.map((x) => ({ id: x.id, data: { ...x }, merge: true })),
+      ...preview.update.map((x) => ({ id: x.id, data: importUpdate(kind, x), merge: true })),
     ];
     // Note: large imports are split into several batches; a failure part-way leaves earlier
     // batches written. Re-running the same import is safe because IDs are deterministic.

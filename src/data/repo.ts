@@ -61,3 +61,29 @@ export function friendlyError(e: unknown): string {
   if (e instanceof Error && e.message) return e.message;
   return 'Beklenmeyen bir hata oluştu.';
 }
+
+/**
+ * Fields written when an import UPDATES an existing document. For spools the production status
+ * (and who/when changed it) is never taken from an import, so a status tapped on a phone while
+ * the admin was previewing cannot be overwritten.
+ */
+export function importUpdate(kind: ImportKind, item: { id: string }): Record<string, unknown> {
+  const { id: _id, ...rest } = item as Record<string, unknown> & { id: string };
+  if (kind === 'spool') {
+    delete rest.status;
+    delete rest.updatedAt;
+    delete rest.updatedBy;
+  }
+  return rest;
+}
+
+/** Records saved by v0.7.0 had locationType/locationName instead of zone/block. */
+export function upgradeRecord<T>(r: T): T {
+  const x = r as Record<string, unknown>;
+  if (x && x.zone === undefined && x.block === undefined && typeof x.locationType === 'string') {
+    const name = String(x.locationName ?? '');
+    const { locationType, locationName: _ln, ...rest } = x;
+    return { ...rest, zone: locationType === 'Zone' ? name : '', block: locationType === 'Block' ? name : '' } as T;
+  }
+  return r;
+}
