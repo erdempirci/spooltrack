@@ -3,6 +3,7 @@
 // material back and double deduction is impossible.
 
 import { round3 } from './normalize';
+import { pipeKg } from './pipeWeight';
 import { matchesSelection, type Selection } from './progress';
 import type { Material, ProjectData, Spool } from './types';
 
@@ -26,6 +27,9 @@ export interface MaterialRow {
   spoolBomTotal: number;
   /** True when the spool lists reference more than the total material list. */
   bomExceedsTotal: boolean;
+  /** Metal pipe only: kilograms of totalNeed and remainingNeed (null when not a pipe or size unreadable). */
+  totalKg: number | null;
+  remainingKg: number | null;
 }
 
 export function isScoped(scope: Selection | undefined): boolean {
@@ -67,6 +71,8 @@ export function computeMaterialRows(data: ProjectData, scope?: Selection): Mater
       shortage: scoped ? null : round3(Math.max(0, remainingNeed - m.stockQty)),
       spoolBomTotal: bom,
       bomExceedsTotal: !scoped && bom > m.totalQty,
+      totalKg: pipeKg(m, round3(totalNeed)),
+      remainingKg: pipeKg(m, Math.max(0, remainingNeed)),
     });
   }
   return rows.sort((a, b) => a.material.code.localeCompare(b.material.code, 'tr', { numeric: true }));
@@ -87,4 +93,10 @@ export function filterMaterialRows(rows: MaterialRow[], f: MaterialFilter): Mate
     }
     return true;
   });
+}
+
+/** Sum of a kilogram column; null when no row has a weight. */
+export function sumKg(rows: MaterialRow[], key: 'totalKg' | 'remainingKg'): number | null {
+  const w = rows.map((r) => r[key]).filter((x): x is number => x != null);
+  return w.length ? Math.round(w.reduce((a, b) => a + b, 0)) : null;
 }

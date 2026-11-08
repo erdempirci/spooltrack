@@ -54,16 +54,18 @@ export default function App() {
     if (projects && projects.length && !project) setProjectId(projects[0].id);
   }, [projects, project, setProjectId]);
 
+  // Resubscribe only when the project id changes, not when the project object is re-created.
+  const projectKey = project?.id;
   useEffect(() => {
-    if (!repo || !project) return;
+    if (!repo || !projectKey) return;
     setData(null);
-    const id = project.id;
+    const id = projectKey;
     return repo.subscribeProjectData(
       id,
       (d) => setData({ id, data: d }),
       (e) => notify(`Proje verisi yüklenemedi: ${friendlyError(e)}`, true),
     );
-  }, [repo, project?.id]);
+  }, [repo, projectKey]);
 
   if (fatal) return <div className="app"><div className="alert error" style={{ marginTop: 24 }}>Uygulama başlatılamadı: {fatal}</div></div>;
   if (!repo || user === undefined) return <div className="app"><p className="empty">Yükleniyor…</p></div>;

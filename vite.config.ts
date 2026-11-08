@@ -15,8 +15,8 @@ export default defineConfig({
         lang: 'tr',
         start_url: '/',
         display: 'standalone',
-        background_color: '#f4f5f7',
-        theme_color: '#1d5fd1',
+        background_color: '#161616',
+        theme_color: '#161616',
         icons: [
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -24,7 +24,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,xlsx}'],
+        globPatterns: ['**/*.{js,css,html,png,xlsx,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),

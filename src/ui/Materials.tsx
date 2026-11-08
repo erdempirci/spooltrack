@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { buildWorkbook } from '../domain/excel';
-import { computeMaterialRows, filterMaterialRows, isScoped, type MaterialRow } from '../domain/materials';
+import { computeMaterialRows, filterMaterialRows, isScoped, sumKg, type MaterialRow } from '../domain/materials';
 import { locationOptions, systemOptions } from '../domain/progress';
 import type { LocationType, Project, ProjectData } from '../domain/types';
 import { Icon } from './icons';
@@ -21,6 +21,8 @@ export function materialExportRows(rows: MaterialRow[]) {
     'Kalan üretim ihtiyacı': r.remainingNeed,
     'Depo stoğu': r.stock ?? '',
     'Eksik satın alma': r.shortage ?? '',
+    'Toplam boru ağırlığı (kg)': r.totalKg ?? '',
+    'Kalan boru ağırlığı (kg)': r.remainingKg ?? '',
   }));
 }
 
@@ -40,6 +42,9 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
     [data, f],
   );
   const shortCount = rows.filter((r) => (r.shortage ?? 0) > 0).length;
+  const kgTotal = sumKg(rows, 'totalKg');
+  const kgLeft = sumKg(rows, 'remainingKg');
+  const hasKg = kgTotal != null;
 
   if (data.materials.length === 0) {
     return <div className="card empty">Bu projede malzeme listesi yüklenmemiş.</div>;
@@ -86,6 +91,13 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
       ) : (
         shortCount > 0 && <div className="alert warn" data-testid="shortage-alert"><b>{shortCount}</b> malzemede eksik satın alma ihtiyacı var.</div>
       )}
+      {hasKg && (
+        <div className="stats kg" data-testid="pipe-weight">
+          <div className="stat"><div className="v">{fmt(kgLeft)}</div><div className="l">Kalan boru, kg</div></div>
+          <div className="stat"><div className="v">{fmt(kgTotal)}</div><div className="l">Toplam boru, kg</div></div>
+          <div className="stat wide2"><div className="l">Ölçüsü okunabilen metal borular. Ağırlık = π·(D−t)·t·ρ; DN + Sch ölçüleri ASME B36.10M/B36.19M.</div></div>
+        </div>
+      )}
       {rows.length === 0 ? (
         <div className="card empty">Filtreye uyan malzeme yok.</div>
       ) : (
@@ -95,7 +107,7 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
               <tr>
                 <th>Malzeme</th><th>Ölçü</th><th>Kalite</th><th>Kod</th><th>Birim</th>
                 <th className="num">Toplam ihtiyaç</th><th className="num">Bitende kullanılan</th><th className="num">Devam edene ayrılan</th>
-                <th className="num">Kalan ihtiyaç</th>{!scoped && <><th className="num">Depo stoğu</th><th className="num">Eksik satın alma</th></>}
+                <th className="num">Kalan ihtiyaç</th>{hasKg && <th className="num">Kalan, kg</th>}{!scoped && <><th className="num">Depo stoğu</th><th className="num">Eksik satın alma</th></>}
               </tr>
             </thead>
             <tbody>
@@ -110,6 +122,7 @@ export function Materials({ project, data }: { project: Project; data: ProjectDa
                   <td className="num" data-label="Biten spoollarda kullanılan" data-col="used">{fmt(r.usedDone)}</td>
                   <td className="num" data-label="Devam edenlere ayrılan" data-col="reserved">{fmt(r.reservedInProgress)}</td>
                   <td className="num" data-label="Kalan üretim ihtiyacı" data-col="remaining">{fmt(r.remainingNeed)}</td>
+                  {hasKg && <td className="num" data-label="Kalan ağırlık, kg" data-col="kg">{r.remainingKg == null ? '' : fmt(r.remainingKg)}</td>}
                   {!scoped && <>
                     <td className="num" data-label="Depo stoğu">{fmt(r.stock)}</td>
                     <td className="num" data-label="Eksik satın alma" data-col="shortage"><b>{fmt(r.shortage)}</b></td>

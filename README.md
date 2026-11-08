@@ -47,6 +47,8 @@ Her adımda “Şablon” butonu doğru başlıklı Excel'i indirir. Dosya seçi
 
 **Malzeme** ekranı: toplam ihtiyaç, bitenlerde kullanılan, devam edenlere ayrılan, kalan ihtiyaç, depo stoğu, eksik satın alma. Sistem, Zone/Block, ölçü ve açıklama filtresi; Excel'e aktarım.
 
+**Boru ağırlığı:** Malzeme ekranı, ölçüsü okunabilen metal borular için kalan ve toplam ağırlığı (kg) gösterir; Excel çıktısına da eklenir. Ölçü `Ø60.3x2.77`, `60,3 x 2,9` gibi dış çap × et kalınlığı yazımından ya da `DN50` + `SCH 40/80/STD/XS/10S/40S` bilgisinden okunur (ASME B36.10M / B36.19M tabloları, [CalebBell/fluids](https://github.com/CalebBell/fluids) MIT kütüphanesinden). Ağırlık = π·(D−t)·t·ρ; yoğunluk kaliteden seçilir (karbon çelik 7850, paslanmaz 7950, duplex 7800, CuNi 8940, bakır 8960, alüminyum 2700 kg/m³). Plastik boru, hortum ve izolasyon hesaba katılmaz. Yalnızca DN yazıp et kalınlığı vermeyen satırlarda ağırlık tahmin edilmez.
+
 **Raporlar** (admin): proje, Zone/Block, sistem, ISO ilerlemesi, eksik satın alma; tümü tek Excel dosyasında (biten/üretimdeki/başlamayan spool listeleri dahil).
 
 ## Tersane raporu (GENERAL_REPORTS) yükleme
@@ -92,15 +94,21 @@ REAL_FILE=/yol/NB012-ZC1-GENERAL_REPORTS.xlsx npm run test:e2e
 | Filtreli malzeme raporu | Sistem veya Zone/Block filtresi açıkken “toplam ihtiyaç” o kapsamdaki spool malzeme listelerinin toplamıdır. Depo stoğu proje geneli olduğundan stok ve eksik satın alma yalnızca filtresiz görünümde gösterilir. |
 | Spool listeleri > toplam | Spool malzeme toplamı toplam listedeki ihtiyacı aşarsa yükleme önizlemesinde ve raporda ⚠ uyarısı. |
 
+## Tasarım
+
+Arayüz IBM Carbon tasarım sistemine dayanır ([VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md) → `ibm/DESIGN.md`) ve Malzeme Robotu ile aynı görsel dili paylaşır: IBM Plex Sans/Mono (paketle gelir, çevrimdışı çalışır), kare köşeler, gölgesiz ince çizgili kutular, tek vurgu rengi IBM Blue, açık g10 / koyu g100 tema. Durum renkleri Carbon destek renkleridir.
+
 ## Testler
 
 ```bash
-npm test                 # 29 birim/entegrasyon testi (Vitest)
+npm test                 # 34 birim/entegrasyon testi (Vitest)
 npm run build
 npm run test:e2e         # gerçek tarayıcıda telefon ekranında uçtan uca test (Playwright)
                          # kurulu Chrome kullanmak için: CHROME_PATH=/path/to/chrome npm run test:e2e
 npm run templates        # şablonları ve test-data/ dosyalarını yeniden üretir (python3 + openpyxl)
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) her push'ta lint, birim testleri, derleme ve uçtan uca testi çalıştırır.
 
 Uçtan uca test `test-data/` içindeki gerçek .xlsx dosyalarını arayüzden yükler (kasıtlı hatalı satırlar dahil), 390×844 telefon ekranında durumları dokunarak değiştirir, ISO ve malzeme sonuçlarını, Excel dışa aktarımını, sayfa yenilemeden sonra kalıcılığı, mühendis görünümünü ve PWA manifest/service worker'ı doğrular.
 
